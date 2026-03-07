@@ -35,7 +35,7 @@ defmodule EctoDBScanner.MixProject do
     [
       {:ecto_sql, "~> 3.12"},
       {:postgrex, "~> 0.20"},
-      {:reactor, "~> 0.13"},
+      {:reactor, "~> 1.0"},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false}
     ]
   end
