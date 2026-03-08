@@ -21,6 +21,7 @@ defmodule EctoDBScanner.DataLoader do
     seed_custom_schema_items()
     seed_binary_data()
     refresh_materialized_views()
+    analyze_tables()
   end
 
   defp seed_users do
@@ -163,5 +164,9 @@ defmodule EctoDBScanner.DataLoader do
 
   defp refresh_materialized_views do
     Ecto.Adapters.SQL.query!(TestRepo, "REFRESH MATERIALIZED VIEW public.user_post_counts", [])
+  end
+
+  defp analyze_tables do
+    Ecto.Adapters.SQL.query!(TestRepo, "ANALYZE", [])
   end
 end

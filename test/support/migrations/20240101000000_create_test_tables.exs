@@ -106,9 +106,36 @@ defmodule EctoDBScanner.TestRepo.Migrations.CreateTestTables do
     LEFT JOIN public.posts p ON p.user_id = u.id
     GROUP BY u.id, u.name
     """)
+
+    # 13. Indexes for testing index discovery
+    create(unique_index(:users, [:email]))
+    create(index(:posts, [:inserted_at]))
+    create(index(:comments, [:post_id, :user_id]))
+
+    execute("CREATE INDEX with_arrays_tags_gin ON with_arrays USING gin (tags)")
+
+    # 14. Check constraints
+    execute("ALTER TABLE products ADD CONSTRAINT products_price_positive CHECK (price > 0)")
+
+    execute(
+      "ALTER TABLE products ADD CONSTRAINT products_quantity_non_negative CHECK (quantity >= 0)"
+    )
+
+    # 15. Unique constraints (distinct from unique indexes - these create pg_constraint entries)
+    execute("ALTER TABLE events ADD CONSTRAINT events_name_unique UNIQUE (name)")
+
+    execute("ALTER TABLE products ADD CONSTRAINT products_name_unique UNIQUE (name)")
   end
 
   def down do
+    execute("ALTER TABLE products DROP CONSTRAINT IF EXISTS products_name_unique")
+    execute("ALTER TABLE events DROP CONSTRAINT IF EXISTS events_name_unique")
+    execute("ALTER TABLE products DROP CONSTRAINT IF EXISTS products_quantity_non_negative")
+    execute("ALTER TABLE products DROP CONSTRAINT IF EXISTS products_price_positive")
+    execute("DROP INDEX IF EXISTS with_arrays_tags_gin")
+    drop_if_exists(index(:comments, [:post_id, :user_id]))
+    drop_if_exists(index(:posts, [:inserted_at]))
+    drop_if_exists(unique_index(:users, [:email]))
     execute("DROP MATERIALIZED VIEW IF EXISTS public.user_post_counts")
     execute("DROP VIEW IF EXISTS public.active_users")
     drop(table(:binary_data))

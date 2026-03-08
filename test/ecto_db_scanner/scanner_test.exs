@@ -388,6 +388,245 @@ defmodule EctoDBScanner.ScannerTest do
     end
   end
 
+  describe "database size" do
+    test "reports database size in bytes", %{db: db} do
+      assert is_integer(db.size_bytes)
+      assert db.size_bytes > 0
+    end
+  end
+
+  describe "table sizes" do
+    test "reports row count for tables", %{db: db} do
+      public = find_schema(db, "public")
+      users = find_table(public, "users")
+
+      assert is_integer(users.row_count)
+      assert users.row_count > 0
+    end
+
+    test "reports size_bytes for tables", %{db: db} do
+      public = find_schema(db, "public")
+      users = find_table(public, "users")
+
+      assert is_integer(users.size_bytes)
+      assert users.size_bytes > 0
+    end
+
+    test "reports index_size_bytes for tables with indexes", %{db: db} do
+      public = find_schema(db, "public")
+      users = find_table(public, "users")
+
+      assert is_integer(users.index_size_bytes)
+      assert users.index_size_bytes > 0
+    end
+
+    test "reports total_size_bytes for tables", %{db: db} do
+      public = find_schema(db, "public")
+      users = find_table(public, "users")
+
+      assert is_integer(users.total_size_bytes)
+      assert users.total_size_bytes > 0
+      assert users.total_size_bytes >= users.size_bytes
+    end
+
+    test "materialized views have size info", %{db: db} do
+      public = find_schema(db, "public")
+      upc = find_table(public, "user_post_counts")
+
+      assert is_integer(upc.size_bytes)
+      assert is_integer(upc.row_count)
+    end
+  end
+
+  describe "indexes" do
+    test "discovers unique index on users.email", %{db: db} do
+      public = find_schema(db, "public")
+      users = find_table(public, "users")
+
+      email_idx =
+        Enum.find(users.indexes, fn idx ->
+          "email" in idx.columns
+        end)
+
+      assert email_idx != nil
+      assert %Result.Index{} = email_idx
+      assert email_idx.unique == true
+      assert email_idx.type == "btree"
+    end
+
+    test "discovers regular index on posts.inserted_at", %{db: db} do
+      public = find_schema(db, "public")
+      posts = find_table(public, "posts")
+
+      idx =
+        Enum.find(posts.indexes, fn idx ->
+          "inserted_at" in idx.columns
+        end)
+
+      assert idx != nil
+      assert idx.unique == false
+    end
+
+    test "discovers composite index on comments", %{db: db} do
+      public = find_schema(db, "public")
+      comments = find_table(public, "comments")
+
+      idx =
+        Enum.find(comments.indexes, fn idx ->
+          "post_id" in idx.columns and "user_id" in idx.columns
+        end)
+
+      assert idx != nil
+      assert length(idx.columns) == 2
+    end
+
+    test "discovers GIN index on with_arrays.tags", %{db: db} do
+      public = find_schema(db, "public")
+      arrays = find_table(public, "with_arrays")
+
+      gin_idx =
+        Enum.find(arrays.indexes, fn idx ->
+          idx.type == "gin"
+        end)
+
+      assert gin_idx != nil
+      assert gin_idx.name == "with_arrays_tags_gin"
+    end
+
+    test "excludes primary key indexes", %{db: db} do
+      public = find_schema(db, "public")
+      users = find_table(public, "users")
+
+      pk_idx = Enum.find(users.indexes, fn idx -> idx.name == "users_pkey" end)
+      assert pk_idx == nil
+    end
+
+    test "tables without non-PK indexes have empty list", %{db: db} do
+      public = find_schema(db, "public")
+      binary_data = find_table(public, "binary_data")
+
+      assert binary_data.indexes == []
+    end
+  end
+
+  describe "check constraints" do
+    test "discovers check constraint on products.price", %{db: db} do
+      public = find_schema(db, "public")
+      products = find_table(public, "products")
+
+      price_check =
+        Enum.find(products.check_constraints, fn cc ->
+          cc.name == "products_price_positive"
+        end)
+
+      assert price_check != nil
+      assert %Result.CheckConstraint{} = price_check
+      assert price_check.expression =~ "price"
+    end
+
+    test "discovers check constraint on products.quantity", %{db: db} do
+      public = find_schema(db, "public")
+      products = find_table(public, "products")
+
+      qty_check =
+        Enum.find(products.check_constraints, fn cc ->
+          cc.name == "products_quantity_non_negative"
+        end)
+
+      assert qty_check != nil
+      assert qty_check.expression =~ "quantity"
+    end
+
+    test "tables without check constraints have empty list", %{db: db} do
+      public = find_schema(db, "public")
+      users = find_table(public, "users")
+
+      assert users.check_constraints == []
+    end
+  end
+
+  describe "unique constraints" do
+    test "discovers unique constraint on events.name", %{db: db} do
+      public = find_schema(db, "public")
+      events = find_table(public, "events")
+
+      uc =
+        Enum.find(events.unique_constraints, fn uc ->
+          uc.name == "events_name_unique"
+        end)
+
+      assert uc != nil
+      assert %Result.UniqueConstraint{} = uc
+      assert "name" in uc.columns
+    end
+
+    test "discovers unique constraint on products.name", %{db: db} do
+      public = find_schema(db, "public")
+      products = find_table(public, "products")
+
+      uc =
+        Enum.find(products.unique_constraints, fn uc ->
+          uc.name == "products_name_unique"
+        end)
+
+      assert uc != nil
+      assert "name" in uc.columns
+    end
+
+    test "tables without unique constraints have empty list", %{db: db} do
+      public = find_schema(db, "public")
+      posts = find_table(public, "posts")
+
+      assert posts.unique_constraints == []
+    end
+  end
+
+  describe "sequences" do
+    test "discovers sequences in public schema", %{db: db} do
+      public = find_schema(db, "public")
+
+      assert is_list(public.sequences)
+      assert length(public.sequences) > 0
+
+      seq_names = Enum.map(public.sequences, & &1.name)
+      assert "users_id_seq" in seq_names
+    end
+
+    test "sequences have correct struct type", %{db: db} do
+      public = find_schema(db, "public")
+      users_seq = Enum.find(public.sequences, &(&1.name == "users_id_seq"))
+
+      assert %Result.Sequence{} = users_seq
+    end
+
+    test "sequences report owned_by for serial columns", %{db: db} do
+      public = find_schema(db, "public")
+      users_seq = Enum.find(public.sequences, &(&1.name == "users_id_seq"))
+
+      assert users_seq.owned_by != nil
+      assert users_seq.owned_by =~ "users"
+      assert users_seq.owned_by =~ "id"
+    end
+
+    test "discovers multiple sequences", %{db: db} do
+      public = find_schema(db, "public")
+      seq_names = Enum.map(public.sequences, & &1.name)
+
+      # Tables with serial PKs: users, posts, comments, events, network_info, with_arrays, with_pg_enum, binary_data
+      assert "posts_id_seq" in seq_names
+      assert "comments_id_seq" in seq_names
+      assert "events_id_seq" in seq_names
+    end
+
+    test "custom schema has sequences if applicable", %{db: db} do
+      custom = find_schema(db, "custom_schema")
+
+      # custom_schema.items has a serial id
+      seq_names = Enum.map(custom.sequences, & &1.name)
+      assert "items_id_seq" in seq_names
+    end
+  end
+
   describe "result struct types" do
     test "returns correct struct types", %{db: db} do
       assert %Result.Database{} = db
