@@ -2,6 +2,7 @@ defmodule EctoDBScanner.Scanner do
   use Reactor
 
   input :repo
+  input :options
 
   step :tables, EctoDBScanner.Steps.QueryTables do
     argument :repo, input(:repo)
@@ -36,6 +37,7 @@ defmodule EctoDBScanner.Scanner do
     argument :tables, result(:tables)
     argument :columns, result(:columns)
     argument :pg_enums, result(:pg_enums)
+    argument :options, input(:options)
   end
 
   step :assemble, EctoDBScanner.Steps.AssembleResults do

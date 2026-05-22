@@ -4,7 +4,9 @@ defmodule EctoDBScanner.ScannerTest do
   alias EctoDBScanner.Result
 
   setup_all do
-    {:ok, result} = Reactor.run(EctoDBScanner.Scanner, %{repo: EctoDBScanner.TestRepo})
+    {:ok, result} =
+      Reactor.run(EctoDBScanner.Scanner, %{repo: EctoDBScanner.TestRepo, options: %{}})
+
     %{db: result}
   end
 

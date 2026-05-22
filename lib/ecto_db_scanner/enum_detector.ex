@@ -16,6 +16,8 @@ defmodule EctoDBScanner.EnumDetector do
   # variance, so the realized sample may be larger or smaller.
   @sample_size 100_000
 
+  @default_timeout 60_000
+
   @doc """
   Queries pg_type/pg_enum catalogs for all defined PostgreSQL ENUM types.
   Returns `%{"type_name" => ["val1", "val2", ...]}`.
@@ -36,8 +38,19 @@ defmodule EctoDBScanner.EnumDetector do
   @doc """
   Detects enum-like string columns using cardinality heuristics.
   Returns `%{{schema, table, column} => ["val1", "val2", ...]}`.
+
+  ## Options
+
+    * `:max_concurrency` — number of columns to sample in parallel. Defaults to
+      `pool_size - 1` (minimum 1) when `:pool_size` is given, otherwise to the
+      system schedulers count.
+    * `:pool_size` — repo pool size used to derive `:max_concurrency` when the
+      latter is not set explicitly.
+    * `:timeout` — per-column sampling timeout in milliseconds. Defaults to
+      `60_000`. A column whose sampling exceeds this is dropped from the
+      results; it does not abort the rest of the run.
   """
-  def detect_heuristic_enums(repo, tables_with_counts, columns, pool_size) do
+  def detect_heuristic_enums(repo, tables_with_counts, columns, opts \\ []) do
     string_columns =
       for col <- columns,
           col.mapped_type == :string,
@@ -46,7 +59,15 @@ defmodule EctoDBScanner.EnumDetector do
           count >= @min_rows,
           do: {schema, table, col.column_name, count}
 
-    max_concurrency = max(pool_size - 1, 1)
+    max_concurrency =
+      Keyword.get_lazy(opts, :max_concurrency, fn ->
+        case Keyword.get(opts, :pool_size) do
+          nil -> System.schedulers_online()
+          pool_size -> max(pool_size - 1, 1)
+        end
+      end)
+
+    timeout = Keyword.get(opts, :timeout, @default_timeout)
 
     string_columns
     |> Task.async_stream(
@@ -54,7 +75,8 @@ defmodule EctoDBScanner.EnumDetector do
         check_column(repo, schema, table, column, total_rows)
       end,
       max_concurrency: max_concurrency,
-      timeout: 30_000
+      timeout: timeout,
+      on_timeout: :kill_task
     )
     |> Enum.reduce(%{}, fn
       {:ok, {key, values}}, acc when not is_nil(values) -> Map.put(acc, key, values)

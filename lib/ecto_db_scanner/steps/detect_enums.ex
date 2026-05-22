@@ -4,10 +4,10 @@ defmodule EctoDBScanner.Steps.DetectEnums do
   alias EctoDBScanner.EnumDetector
 
   @impl true
-  def run(%{repo: repo, tables: tables, columns: columns, pg_enums: pg_enums}, _context, _options) do
-    pool_size = repo.config()[:pool_size] || 5
+  def run(arguments, _context, _step_options) do
+    %{repo: repo, tables: tables, columns: columns, pg_enums: pg_enums} = arguments
+    scan_options = Map.get(arguments, :options, %{})
 
-    # Map PG enum types to columns
     pg_enum_info =
       for col <- columns,
           col.data_type == "USER-DEFINED",
@@ -17,14 +17,26 @@ defmodule EctoDBScanner.Steps.DetectEnums do
         {{col.table_schema, col.table_name, col.column_name}, values}
       end
 
-    # Strip type from table tuples for heuristic detection (expects {schema, table, count})
-    tables_with_counts =
-      Enum.map(tables, fn {schema, table, count, _type} -> {schema, table, count} end)
+    if Map.get(scan_options, :detect_enums, true) do
+      pool_size = repo.config()[:pool_size] || 5
 
-    # Heuristic detection on string columns
-    heuristic_info =
-      EnumDetector.detect_heuristic_enums(repo, tables_with_counts, columns, pool_size)
+      detector_opts =
+        [pool_size: pool_size]
+        |> maybe_put(:max_concurrency, Map.get(scan_options, :enum_detection_max_concurrency))
+        |> maybe_put(:timeout, Map.get(scan_options, :enum_detection_timeout))
 
-    {:ok, Map.merge(heuristic_info, pg_enum_info)}
+      tables_with_counts =
+        Enum.map(tables, fn {schema, table, count, _type} -> {schema, table, count} end)
+
+      heuristic_info =
+        EnumDetector.detect_heuristic_enums(repo, tables_with_counts, columns, detector_opts)
+
+      {:ok, Map.merge(heuristic_info, pg_enum_info)}
+    else
+      {:ok, pg_enum_info}
+    end
   end
+
+  defp maybe_put(opts, _key, nil), do: opts
+  defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
 end

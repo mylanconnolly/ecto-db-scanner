@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.4.0
+
+### Bug fixes
+
+- **One slow column no longer aborts the whole scan**: heuristic enum detection's per-column `Task.async_stream` now uses `on_timeout: :kill_task`, so a column whose `TABLESAMPLE` sampling exceeds the timeout is dropped from the results instead of exiting the stream (which previously propagated out of the `DetectEnums` step and failed the entire `Reactor.run`). The default per-column timeout is also raised from 30 s to 60 s to match `Postgrex`'s default.
+
+### New features
+
+- **`:detect_enums` option** on `EctoDBScanner.scan/1` (default `true`). Set to `false` to skip the cardinality-based heuristic entirely on databases where even sampled enum detection is too slow. PostgreSQL `ENUM`-typed columns continue to be detected via catalog lookup.
+- **`:enum_detection_timeout` option** on `EctoDBScanner.scan/1` (default `60_000`). Per-column sampling timeout in milliseconds for heuristic enum detection. Callers know more about their target DB's latency profile than the library does.
+- **`:enum_detection_max_concurrency` option** on `EctoDBScanner.scan/1`. Number of columns to sample in parallel. Defaults to `pool_size - 1`.
+
 ## v0.3.0
 
 ### Improvements
