@@ -9,6 +9,13 @@ defmodule EctoDBScanner.EnumDetector do
   @max_distinct 50
   @max_ratio 0.10
 
+  # Tables larger than this trigger TABLESAMPLE-based distinct counting so we
+  # don't scan billion-row tables to evaluate a cardinality heuristic.
+  @sample_threshold 100_000
+  # Target sample size when sampling. Block-based SYSTEM sampling has high
+  # variance, so the realized sample may be larger or smaller.
+  @sample_size 100_000
+
   @doc """
   Queries pg_type/pg_enum catalogs for all defined PostgreSQL ENUM types.
   Returns `%{"type_name" => ["val1", "val2", ...]}`.
@@ -55,6 +62,38 @@ defmodule EctoDBScanner.EnumDetector do
     end)
   end
 
+  defp check_column(repo, schema, table, column, total_rows)
+       when total_rows > @sample_threshold do
+    percentage = sample_percentage(total_rows)
+    qualified = qualify(schema, table)
+    quoted_col = quote_ident(column)
+
+    {:ok, %{rows: [[distinct_count, sample_rows]]}} =
+      Ecto.Adapters.SQL.query(
+        repo,
+        "SELECT COUNT(DISTINCT #{quoted_col}), COUNT(*) " <>
+          "FROM #{qualified} TABLESAMPLE SYSTEM ($1) WHERE #{quoted_col} IS NOT NULL",
+        [percentage]
+      )
+
+    sample_ratio = if sample_rows > 0, do: distinct_count / sample_rows, else: 1.0
+
+    if distinct_count <= @max_distinct and sample_ratio <= @max_ratio do
+      {:ok, %{rows: rows}} =
+        Ecto.Adapters.SQL.query(
+          repo,
+          "SELECT DISTINCT #{quoted_col} FROM #{qualified} TABLESAMPLE SYSTEM ($1) " <>
+            "WHERE #{quoted_col} IS NOT NULL ORDER BY #{quoted_col} LIMIT 51",
+          [percentage]
+        )
+
+      values = Enum.map(rows, fn [v] -> v end)
+      {{schema, table, column}, values}
+    else
+      {{schema, table, column}, nil}
+    end
+  end
+
   defp check_column(repo, schema, table, column, total_rows) do
     distinct_count =
       from(t in table,
@@ -81,4 +120,15 @@ defmodule EctoDBScanner.EnumDetector do
       {{schema, table, column}, nil}
     end
   end
+
+  defp sample_percentage(total_rows) do
+    pct = @sample_size * 100.0 / total_rows
+    pct |> max(0.01) |> min(100.0) |> Float.round(4)
+  end
+
+  defp qualify(schema, table), do: ~s|"#{escape(schema)}"."#{escape(table)}"|
+
+  defp quote_ident(name), do: ~s|"#{escape(name)}"|
+
+  defp escape(name), do: String.replace(name, ~s|"|, ~s|""|)
 end

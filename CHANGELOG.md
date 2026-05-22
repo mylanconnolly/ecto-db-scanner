@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.3.0
+
+### Improvements
+
+- **Avoid `count(*)` timeouts on large tables**: `QueryTables` now derives per-table row counts from `pg_class.reltuples` (planner statistics) instead of running `SELECT count(*)` against every table. On databases with multi-million / billion-row tables this removes the most common scan-time timeout.
+- **Sample large tables in heuristic enum detection**: `EnumDetector` now uses `TABLESAMPLE SYSTEM` to bound the work of `COUNT(DISTINCT col)` and distinct-value collection on tables larger than 100k rows, so a single huge table can no longer drag the whole scan into a timeout. Tables below the threshold continue to scan in full.
+
+### New features
+
+- **`:analyze` option** on `EctoDBScanner.scan/1` (default `true`). Runs `ANALYZE` before scanning so the `reltuples` statistics used for row counts and sampling are fresh. Set `analyze: false` if statistics are already current or the connecting role lacks permission to analyze.
+
 ## v0.2.0 (2026-03-07)
 
 ### New features
