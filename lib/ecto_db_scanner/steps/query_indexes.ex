@@ -3,16 +3,20 @@ defmodule EctoDBScanner.Steps.QueryIndexes do
 
   import Ecto.Query
 
-  @system_schemas ["information_schema", "pg_catalog", "pg_toast"]
+  alias EctoDBScanner.RepoRef
+  alias EctoDBScanner.SchemaScope
 
   @impl true
-  def run(%{repo: repo}, _context, _options) do
-    indexes = query_indexes(repo)
+  def run(%{repo: repo_ref} = arguments, _context, _options) do
+    repo = RepoRef.bind(repo_ref)
+    options = Map.get(arguments, :options, %{})
+
+    indexes = query_indexes(repo, options)
 
     {:ok, indexes}
   end
 
-  defp query_indexes(repo) do
+  defp query_indexes(repo, options) do
     from(i in "pg_index",
       prefix: "pg_catalog",
       join: ic in "pg_class",
@@ -22,12 +26,12 @@ defmodule EctoDBScanner.Steps.QueryIndexes do
       on: i.indrelid == tc.oid,
       prefix: "pg_catalog",
       join: n in "pg_namespace",
+      as: :schema_scope,
       on: tc.relnamespace == n.oid,
       prefix: "pg_catalog",
       join: am in "pg_am",
       on: ic.relam == am.oid,
       prefix: "pg_catalog",
-      where: n.nspname not in @system_schemas,
       where: not i.indisprimary,
       select: {
         n.nspname,
@@ -38,6 +42,7 @@ defmodule EctoDBScanner.Steps.QueryIndexes do
         fragment("pg_get_indexdef(?)", i.indexrelid)
       }
     )
+    |> SchemaScope.apply_scope(options, :nspname)
     |> repo.all()
     |> Enum.group_by(
       fn {schema, table, _, _, _, _} -> {schema, table} end,

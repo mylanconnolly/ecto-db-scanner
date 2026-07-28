@@ -3,14 +3,18 @@ defmodule EctoDBScanner.Steps.QueryConstraints do
 
   import Ecto.Query
 
-  @system_schemas ["information_schema", "pg_catalog", "pg_toast"]
+  alias EctoDBScanner.RepoRef
+  alias EctoDBScanner.SchemaScope
 
   @impl true
-  def run(%{repo: repo}, _context, _options) do
-    primary_keys = query_primary_keys(repo)
-    foreign_keys = query_foreign_keys(repo)
-    check_constraints = query_check_constraints(repo)
-    unique_constraints = query_unique_constraints(repo)
+  def run(%{repo: repo_ref} = arguments, _context, _options) do
+    repo = RepoRef.bind(repo_ref)
+    options = Map.get(arguments, :options, %{})
+
+    primary_keys = query_primary_keys(repo, options)
+    foreign_keys = query_foreign_keys(repo, options)
+    check_constraints = query_check_constraints(repo, options)
+    unique_constraints = query_unique_constraints(repo, options)
 
     {:ok,
      %{
@@ -21,24 +25,26 @@ defmodule EctoDBScanner.Steps.QueryConstraints do
      }}
   end
 
-  defp query_primary_keys(repo) do
+  defp query_primary_keys(repo, options) do
     from(tc in "table_constraints",
       prefix: "information_schema",
+      as: :schema_scope,
       join: kcu in "key_column_usage",
       on: tc.constraint_name == kcu.constraint_name and tc.table_schema == kcu.table_schema,
       prefix: "information_schema",
       where: tc.constraint_type == "PRIMARY KEY",
-      where: tc.table_schema not in @system_schemas,
       order_by: [kcu.table_schema, kcu.table_name, kcu.ordinal_position],
       select: {kcu.table_schema, kcu.table_name, kcu.column_name}
     )
+    |> SchemaScope.apply_scope(options, :table_schema)
     |> repo.all()
     |> MapSet.new()
   end
 
-  defp query_foreign_keys(repo) do
+  defp query_foreign_keys(repo, options) do
     from(tc in "table_constraints",
       prefix: "information_schema",
+      as: :schema_scope,
       join: kcu in "key_column_usage",
       on: tc.constraint_name == kcu.constraint_name and tc.table_schema == kcu.table_schema,
       prefix: "information_schema",
@@ -48,7 +54,6 @@ defmodule EctoDBScanner.Steps.QueryConstraints do
           tc.constraint_schema == ccu.constraint_schema,
       prefix: "information_schema",
       where: tc.constraint_type == "FOREIGN KEY",
-      where: tc.table_schema not in @system_schemas,
       order_by: [kcu.table_schema, kcu.table_name, kcu.column_name],
       select: {
         kcu.table_schema,
@@ -59,23 +64,24 @@ defmodule EctoDBScanner.Steps.QueryConstraints do
         ccu.column_name
       }
     )
+    |> SchemaScope.apply_scope(options, :table_schema)
     |> repo.all()
     |> Map.new(fn {schema, table, column, ref_schema, ref_table, ref_column} ->
       {{schema, table, column}, %{schema: ref_schema, table: ref_table, column: ref_column}}
     end)
   end
 
-  defp query_check_constraints(repo) do
+  defp query_check_constraints(repo, options) do
     from(con in "pg_constraint",
       prefix: "pg_catalog",
       join: c in "pg_class",
       on: con.conrelid == c.oid,
       prefix: "pg_catalog",
       join: n in "pg_namespace",
+      as: :schema_scope,
       on: c.relnamespace == n.oid,
       prefix: "pg_catalog",
       where: con.contype == "c",
-      where: n.nspname not in @system_schemas,
       order_by: [n.nspname, c.relname, con.conname],
       select: {
         n.nspname,
@@ -84,6 +90,7 @@ defmodule EctoDBScanner.Steps.QueryConstraints do
         fragment("pg_get_constraintdef(?)", con.oid)
       }
     )
+    |> SchemaScope.apply_scope(options, :nspname)
     |> repo.all()
     |> Enum.group_by(
       fn {schema, table, _, _} -> {schema, table} end,
@@ -91,17 +98,17 @@ defmodule EctoDBScanner.Steps.QueryConstraints do
     )
   end
 
-  defp query_unique_constraints(repo) do
+  defp query_unique_constraints(repo, options) do
     from(con in "pg_constraint",
       prefix: "pg_catalog",
       join: c in "pg_class",
       on: con.conrelid == c.oid,
       prefix: "pg_catalog",
       join: n in "pg_namespace",
+      as: :schema_scope,
       on: c.relnamespace == n.oid,
       prefix: "pg_catalog",
       where: con.contype == "u",
-      where: n.nspname not in @system_schemas,
       order_by: [n.nspname, c.relname, con.conname],
       select: {
         n.nspname,
@@ -111,6 +118,7 @@ defmodule EctoDBScanner.Steps.QueryConstraints do
         con.conrelid
       }
     )
+    |> SchemaScope.apply_scope(options, :nspname)
     |> repo.all()
     |> Enum.map(fn {schema, table, name, conkey, relid} ->
       columns = resolve_column_names(repo, relid, conkey)

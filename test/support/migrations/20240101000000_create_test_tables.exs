@@ -125,6 +125,14 @@ defmodule EctoDBScanner.TestRepo.Migrations.CreateTestTables do
     execute("ALTER TABLE events ADD CONSTRAINT events_name_unique UNIQUE (name)")
 
     execute("ALTER TABLE products ADD CONSTRAINT products_name_unique UNIQUE (name)")
+
+    # 16. Comments on tables, views, materialized views, and columns
+    execute("COMMENT ON TABLE public.users IS 'Application user accounts'")
+    execute("COMMENT ON COLUMN public.users.email IS 'Unique login email address'")
+    execute("COMMENT ON VIEW public.active_users IS 'Users with active status'")
+    execute("COMMENT ON MATERIALIZED VIEW public.user_post_counts IS 'Post counts per user'")
+    execute("COMMENT ON TABLE custom_schema.items IS 'Inventory items'")
+    execute("COMMENT ON COLUMN custom_schema.items.category IS 'Item category bucket'")
   end
 
   def down do

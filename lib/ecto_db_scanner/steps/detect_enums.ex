@@ -2,11 +2,14 @@ defmodule EctoDBScanner.Steps.DetectEnums do
   use Reactor.Step
 
   alias EctoDBScanner.EnumDetector
+  alias EctoDBScanner.RepoRef
 
   @impl true
   def run(arguments, _context, _step_options) do
-    %{repo: repo, tables: tables, columns: columns, pg_enums: pg_enums} = arguments
+    %{repo: repo_ref, tables: tables, columns: columns, pg_enums: pg_enums} = arguments
     scan_options = Map.get(arguments, :options, %{})
+
+    repo = RepoRef.bind(repo_ref)
 
     pg_enum_info =
       for col <- columns,
@@ -26,10 +29,10 @@ defmodule EctoDBScanner.Steps.DetectEnums do
         |> maybe_put(:timeout, Map.get(scan_options, :enum_detection_timeout))
 
       tables_with_counts =
-        Enum.map(tables, fn {schema, table, count, _type} -> {schema, table, count} end)
+        Enum.map(tables, fn {schema, table, count, _type, _comment} -> {schema, table, count} end)
 
       heuristic_info =
-        EnumDetector.detect_heuristic_enums(repo, tables_with_counts, columns, detector_opts)
+        EnumDetector.detect_heuristic_enums(repo_ref, tables_with_counts, columns, detector_opts)
 
       {:ok, Map.merge(heuristic_info, pg_enum_info)}
     else

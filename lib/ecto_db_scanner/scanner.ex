@@ -6,30 +6,37 @@ defmodule EctoDBScanner.Scanner do
 
   step :tables, EctoDBScanner.Steps.QueryTables do
     argument :repo, input(:repo)
+    argument :options, input(:options)
   end
 
   step :columns, EctoDBScanner.Steps.QueryColumns do
     argument :repo, input(:repo)
+    argument :options, input(:options)
   end
 
   step :pg_enums, EctoDBScanner.Steps.QueryPGEnums do
     argument :repo, input(:repo)
+    argument :options, input(:options)
   end
 
   step :constraints, EctoDBScanner.Steps.QueryConstraints do
     argument :repo, input(:repo)
+    argument :options, input(:options)
   end
 
   step :sizes, EctoDBScanner.Steps.QuerySizes do
     argument :repo, input(:repo)
+    argument :options, input(:options)
   end
 
   step :indexes, EctoDBScanner.Steps.QueryIndexes do
     argument :repo, input(:repo)
+    argument :options, input(:options)
   end
 
   step :sequences, EctoDBScanner.Steps.QuerySequences do
     argument :repo, input(:repo)
+    argument :options, input(:options)
   end
 
   step :detect_enums, EctoDBScanner.Steps.DetectEnums do

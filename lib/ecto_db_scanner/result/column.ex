@@ -5,6 +5,7 @@ defmodule EctoDBScanner.Result.Column do
     :nullable,
     :enum_values,
     :default,
+    :comment,
     primary_key: false,
     foreign_key: nil
   ]
@@ -21,6 +22,7 @@ defmodule EctoDBScanner.Result.Column do
           nullable: boolean(),
           enum_values: [String.t()] | nil,
           default: String.t() | nil,
+          comment: String.t() | nil,
           primary_key: boolean(),
           foreign_key: foreign_key_ref() | nil
         }

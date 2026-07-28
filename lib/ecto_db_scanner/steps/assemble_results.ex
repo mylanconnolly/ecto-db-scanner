@@ -27,7 +27,10 @@ defmodule EctoDBScanner.Steps.AssembleResults do
     %{database_size: database_size, table_sizes: table_sizes, row_counts: row_counts} = sizes
 
     table_types =
-      Map.new(tables, fn {schema, table, _count, type} -> {{schema, table}, type} end)
+      Map.new(tables, fn {schema, table, _count, type, _comment} -> {{schema, table}, type} end)
+
+    table_comments =
+      Map.new(tables, fn {schema, table, _count, _type, comment} -> {{schema, table}, comment} end)
 
     schemas =
       columns
@@ -61,7 +64,8 @@ defmodule EctoDBScanner.Steps.AssembleResults do
                   enum_values: enum_values,
                   default: col.column_default,
                   primary_key: MapSet.member?(primary_keys, key),
-                  foreign_key: Map.get(foreign_keys, key)
+                  foreign_key: Map.get(foreign_keys, key),
+                  comment: Map.get(col, :comment)
                 }
               end)
 
@@ -98,6 +102,7 @@ defmodule EctoDBScanner.Steps.AssembleResults do
             %Result.Table{
               name: table_name,
               type: table_type,
+              comment: Map.get(table_comments, table_key),
               row_count: row_count,
               size_bytes: Map.get(size_info, :size_bytes, 0),
               index_size_bytes: Map.get(size_info, :index_size_bytes, 0),
