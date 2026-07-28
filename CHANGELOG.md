@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.5.0
+
+### New features
+
+- **Concurrent scans**: `EctoDBScanner.scan/1` no longer registers the repo under a fixed process name. Each scan starts its own anonymous repo instance (Ecto's dynamic-repo pattern), so multiple scans — against different databases or the same one — can run simultaneously from a single node without colliding on `EctoDBScanner.Repo`.
+- **`:schemas` option** on `EctoDBScanner.scan/1`. When present, only the listed schemas are scanned. The filter is applied at the query level in every catalog query (tables, columns, constraints, sizes, indexes, sequences) so excluded schemas cost nothing — in particular, heuristic enum detection never samples their data.
+- **`:exclude_schemas` option** on `EctoDBScanner.scan/1`. Schemas to skip in addition to the always-excluded system schemas (`information_schema`, `pg_catalog`, `pg_toast`). Applied at the query level like `:schemas`.
+- **Table and column comments**: PostgreSQL comments (`COMMENT ON TABLE` / `COMMENT ON COLUMN`, via `obj_description` / `col_description`) are now extracted for tables, views, and materialized views. New `comment` field (`String.t() | nil`) on `%Result.Table{}` and `%Result.Column{}`.
+
+### Internal changes
+
+- The `EctoDBScanner.Scanner` Reactor's `repo` input is now an `%EctoDBScanner.RepoRef{}` (repo module + instance pid) instead of a bare repo module, and every query step takes an `options` argument. Each step (and each spawned enum-sampling task) binds the dynamic repo to its own process via `EctoDBScanner.RepoRef.bind/1` before querying. Callers invoking the Reactor directly can still pass a bare repo module — `RepoRef.bind/1` passes it through unchanged.
+
 ## v0.4.0
 
 ### Bug fixes

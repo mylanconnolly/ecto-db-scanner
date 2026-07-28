@@ -629,6 +629,61 @@ defmodule EctoDBScanner.ScannerTest do
     end
   end
 
+  describe "comments" do
+    test "surfaces table comments", %{db: db} do
+      public = find_schema(db, "public")
+      users = find_table(public, "users")
+
+      assert users.comment == "Application user accounts"
+    end
+
+    test "surfaces column comments", %{db: db} do
+      public = find_schema(db, "public")
+      users = find_table(public, "users")
+      email_col = find_column(users, "email")
+
+      assert email_col.comment == "Unique login email address"
+    end
+
+    test "surfaces view comments", %{db: db} do
+      public = find_schema(db, "public")
+      active_users = find_table(public, "active_users")
+
+      assert active_users.comment == "Users with active status"
+    end
+
+    test "surfaces materialized view comments", %{db: db} do
+      public = find_schema(db, "public")
+      upc = find_table(public, "user_post_counts")
+
+      assert upc.comment == "Post counts per user"
+    end
+
+    test "surfaces comments in custom schemas", %{db: db} do
+      custom = find_schema(db, "custom_schema")
+      items = find_table(custom, "items")
+      category_col = find_column(items, "category")
+
+      assert items.comment == "Inventory items"
+      assert category_col.comment == "Item category bucket"
+    end
+
+    test "tables without comments have nil", %{db: db} do
+      public = find_schema(db, "public")
+      posts = find_table(public, "posts")
+
+      assert posts.comment == nil
+    end
+
+    test "columns without comments have nil", %{db: db} do
+      public = find_schema(db, "public")
+      users = find_table(public, "users")
+      name_col = find_column(users, "name")
+
+      assert name_col.comment == nil
+    end
+  end
+
   describe "result struct types" do
     test "returns correct struct types", %{db: db} do
       assert %Result.Database{} = db

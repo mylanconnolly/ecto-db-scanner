@@ -5,6 +5,8 @@ defmodule EctoDBScanner.EnumDetector do
 
   import Ecto.Query
 
+  alias EctoDBScanner.RepoRef
+
   @min_rows 100
   @max_distinct 50
   @max_ratio 0.10
@@ -50,7 +52,7 @@ defmodule EctoDBScanner.EnumDetector do
       `60_000`. A column whose sampling exceeds this is dropped from the
       results; it does not abort the rest of the run.
   """
-  def detect_heuristic_enums(repo, tables_with_counts, columns, opts \\ []) do
+  def detect_heuristic_enums(repo_ref, tables_with_counts, columns, opts \\ []) do
     string_columns =
       for col <- columns,
           col.mapped_type == :string,
@@ -72,6 +74,9 @@ defmodule EctoDBScanner.EnumDetector do
     string_columns
     |> Task.async_stream(
       fn {schema, table, column, total_rows} ->
+        # put_dynamic_repo is process-local, so the bind must happen inside
+        # each sampling task, not once in the caller.
+        repo = RepoRef.bind(repo_ref)
         check_column(repo, schema, table, column, total_rows)
       end,
       max_concurrency: max_concurrency,
@@ -91,8 +96,7 @@ defmodule EctoDBScanner.EnumDetector do
     quoted_col = quote_ident(column)
 
     {:ok, %{rows: [[distinct_count, sample_rows]]}} =
-      Ecto.Adapters.SQL.query(
-        repo,
+      repo.query(
         "SELECT COUNT(DISTINCT #{quoted_col}), COUNT(*) " <>
           "FROM #{qualified} TABLESAMPLE SYSTEM ($1) WHERE #{quoted_col} IS NOT NULL",
         [percentage]
@@ -102,8 +106,7 @@ defmodule EctoDBScanner.EnumDetector do
 
     if distinct_count <= @max_distinct and sample_ratio <= @max_ratio do
       {:ok, %{rows: rows}} =
-        Ecto.Adapters.SQL.query(
-          repo,
+        repo.query(
           "SELECT DISTINCT #{quoted_col} FROM #{qualified} TABLESAMPLE SYSTEM ($1) " <>
             "WHERE #{quoted_col} IS NOT NULL ORDER BY #{quoted_col} LIMIT 51",
           [percentage]

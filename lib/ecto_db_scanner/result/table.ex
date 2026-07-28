@@ -2,6 +2,7 @@ defmodule EctoDBScanner.Result.Table do
   defstruct [
     :name,
     :type,
+    :comment,
     :row_count,
     :size_bytes,
     :index_size_bytes,
@@ -15,6 +16,7 @@ defmodule EctoDBScanner.Result.Table do
   @type t :: %__MODULE__{
           name: String.t(),
           type: :table | :view | :materialized_view,
+          comment: String.t() | nil,
           row_count: integer(),
           size_bytes: integer(),
           index_size_bytes: integer(),

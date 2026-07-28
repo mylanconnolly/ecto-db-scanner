@@ -3,13 +3,17 @@ defmodule EctoDBScanner.Steps.QuerySizes do
 
   import Ecto.Query
 
-  @system_schemas ["information_schema", "pg_catalog", "pg_toast"]
+  alias EctoDBScanner.RepoRef
+  alias EctoDBScanner.SchemaScope
 
   @impl true
-  def run(%{repo: repo}, _context, _options) do
+  def run(%{repo: repo_ref} = arguments, _context, _options) do
+    repo = RepoRef.bind(repo_ref)
+    options = Map.get(arguments, :options, %{})
+
     database_size = query_database_size(repo)
-    table_sizes = query_table_sizes(repo)
-    row_counts = query_row_counts(repo)
+    table_sizes = query_table_sizes(repo, options)
+    row_counts = query_row_counts(repo, options)
 
     {:ok, %{database_size: database_size, table_sizes: table_sizes, row_counts: row_counts}}
   end
@@ -23,14 +27,14 @@ defmodule EctoDBScanner.Steps.QuerySizes do
     |> repo.one()
   end
 
-  defp query_table_sizes(repo) do
+  defp query_table_sizes(repo, options) do
     from(c in "pg_class",
       prefix: "pg_catalog",
       join: n in "pg_namespace",
+      as: :schema_scope,
       on: c.relnamespace == n.oid,
       prefix: "pg_catalog",
       where: c.relkind in ["r", "m", "v"],
-      where: n.nspname not in @system_schemas,
       select: {
         n.nspname,
         c.relname,
@@ -39,6 +43,7 @@ defmodule EctoDBScanner.Steps.QuerySizes do
         fragment("pg_total_relation_size(?)", c.oid)
       }
     )
+    |> SchemaScope.apply_scope(options, :nspname)
     |> repo.all()
     |> Map.new(fn {schema, table, table_size, index_size, total_size} ->
       {{schema, table},
@@ -46,16 +51,17 @@ defmodule EctoDBScanner.Steps.QuerySizes do
     end)
   end
 
-  defp query_row_counts(repo) do
+  defp query_row_counts(repo, options) do
     from(c in "pg_class",
       prefix: "pg_catalog",
       join: n in "pg_namespace",
+      as: :schema_scope,
       on: c.relnamespace == n.oid,
       prefix: "pg_catalog",
       where: c.relkind in ["r", "m", "v"],
-      where: n.nspname not in @system_schemas,
       select: {n.nspname, c.relname, fragment("?::bigint", c.reltuples)}
     )
+    |> SchemaScope.apply_scope(options, :nspname)
     |> repo.all()
     |> Map.new(fn {schema, table, count} -> {{schema, table}, count} end)
   end

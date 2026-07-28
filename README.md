@@ -10,6 +10,9 @@ A PostgreSQL database scanner that connects to a database at runtime, discovers 
 - Detect PostgreSQL ENUM types with their defined values
 - Heuristic detection of enum-like string columns based on cardinality
 - Expose column defaults and nullability
+- Extract table and column comments (`COMMENT ON ...`)
+- Scope scans to specific schemas (`:schemas`) or skip schemas (`:exclude_schemas`)
+- Safe to run concurrently — each scan uses its own anonymous repo instance
 - Parallel scan execution via [Reactor](https://hexdocs.pm/reactor) pipeline
 
 ## Installation
@@ -44,6 +47,7 @@ end
 #         %EctoDBScanner.Result.Table{
 #           name: "users",
 #           type: :table,
+#           comment: "Application user accounts",
 #           columns: [
 #             %EctoDBScanner.Result.Column{
 #               name: "id",
@@ -52,7 +56,8 @@ end
 #               primary_key: true,
 #               foreign_key: nil,
 #               default: "nextval('users_id_seq'::regclass)",
-#               enum_values: nil
+#               enum_values: nil,
+#               comment: nil
 #             },
 #             %EctoDBScanner.Result.Column{
 #               name: "status",
@@ -61,7 +66,8 @@ end
 #               primary_key: false,
 #               foreign_key: nil,
 #               default: nil,
-#               enum_values: ["active", "inactive", "pending"]
+#               enum_values: ["active", "inactive", "pending"],
+#               comment: "Account lifecycle state"
 #             },
 #             ...
 #           ]
@@ -73,6 +79,10 @@ end
 #   ]
 # }
 ```
+
+See the `EctoDBScanner.scan/1` docs for the full list of options, including
+`:schemas` / `:exclude_schemas` for scoping a scan to particular schemas and
+the `ANALYZE` / enum-detection knobs.
 
 ## Type Mapping
 

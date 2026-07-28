@@ -3,19 +3,24 @@ defmodule EctoDBScanner.Steps.QuerySequences do
 
   import Ecto.Query
 
-  @system_schemas ["information_schema", "pg_catalog", "pg_toast"]
+  alias EctoDBScanner.RepoRef
+  alias EctoDBScanner.SchemaScope
 
   @impl true
-  def run(%{repo: repo}, _context, _options) do
-    sequences = query_sequences(repo)
+  def run(%{repo: repo_ref} = arguments, _context, _options) do
+    repo = RepoRef.bind(repo_ref)
+    options = Map.get(arguments, :options, %{})
+
+    sequences = query_sequences(repo, options)
 
     {:ok, sequences}
   end
 
-  defp query_sequences(repo) do
+  defp query_sequences(repo, options) do
     from(c in "pg_class",
       prefix: "pg_catalog",
       join: n in "pg_namespace",
+      as: :schema_scope,
       on: c.relnamespace == n.oid,
       prefix: "pg_catalog",
       left_join: d in "pg_depend",
@@ -31,7 +36,6 @@ defmodule EctoDBScanner.Steps.QuerySequences do
       on: ac.relnamespace == an.oid,
       prefix: "pg_catalog",
       where: c.relkind == "S",
-      where: n.nspname not in @system_schemas,
       select: {
         n.nspname,
         c.relname,
@@ -46,6 +50,7 @@ defmodule EctoDBScanner.Steps.QuerySequences do
       },
       order_by: [n.nspname, c.relname]
     )
+    |> SchemaScope.apply_scope(options, :nspname)
     |> repo.all()
     |> Enum.group_by(
       fn {schema, _, _, _} -> schema end,

@@ -3,13 +3,17 @@ defmodule EctoDBScanner do
   A PostgreSQL database scanner that discovers structure, maps types, and detects enums.
   """
 
+  alias EctoDBScanner.RepoRef
+
   @default_pool_size 5
 
   @scan_opts [
     :analyze,
     :detect_enums,
     :enum_detection_timeout,
-    :enum_detection_max_concurrency
+    :enum_detection_max_concurrency,
+    :schemas,
+    :exclude_schemas
   ]
 
   @doc """
@@ -24,6 +28,10 @@ defmodule EctoDBScanner do
         database: "my_db",
         port: 5432
       )
+
+  Scans are safe to run concurrently: each call starts its own anonymous repo
+  instance, so multiple databases (or the same database) can be scanned at the
+  same time from a single node.
 
   ## Options
 
@@ -48,6 +56,15 @@ defmodule EctoDBScanner do
       sample concurrently. Defaults to `pool_size - 1` (minimum 1) so the
       connection pool is not saturated by the scan itself.
 
+    * `:schemas` (list of strings) — When present, **only** these schemas are
+      scanned. Filtering happens at the query level, so tables, columns,
+      constraints, sizes, indexes, sequences, and enum detection sampling all
+      skip everything outside the listed schemas.
+
+    * `:exclude_schemas` (list of strings) — Schemas to skip, in addition to
+      the always-excluded system schemas (`information_schema`, `pg_catalog`,
+      `pg_toast`). Applied at the query level like `:schemas`.
+
   All other options are passed through to the underlying repo connection.
 
   Returns `{:ok, %EctoDBScanner.Result.Database{}}` or `{:error, reason}`.
@@ -56,26 +73,33 @@ defmodule EctoDBScanner do
     {scan_opts, repo_opts} = Keyword.split(opts, @scan_opts)
 
     repo_config =
-      Keyword.merge(
-        [pool_size: @default_pool_size],
-        repo_opts
-      )
+      [pool_size: @default_pool_size]
+      |> Keyword.merge(repo_opts)
+      # Anonymous instance: concurrent scans must not collide on a registered
+      # process name, so every scan starts its own unnamed repo.
+      |> Keyword.put(:name, nil)
 
     {:ok, repo_pid} = EctoDBScanner.Repo.start_link(repo_config)
+    repo_ref = RepoRef.new(EctoDBScanner.Repo, repo_pid)
 
     try do
       if Keyword.get(scan_opts, :analyze, true) do
-        Ecto.Adapters.SQL.query!(EctoDBScanner.Repo, "ANALYZE", [], timeout: :infinity)
+        # The repo module's own query!/3 (rather than Ecto.Adapters.SQL) so the
+        # call is routed to the dynamic instance bound to this process.
+        repo = RepoRef.bind(repo_ref)
+        repo.query!("ANALYZE", [], timeout: :infinity)
       end
 
       reactor_options = %{
         detect_enums: Keyword.get(scan_opts, :detect_enums, true),
         enum_detection_timeout: Keyword.get(scan_opts, :enum_detection_timeout),
-        enum_detection_max_concurrency: Keyword.get(scan_opts, :enum_detection_max_concurrency)
+        enum_detection_max_concurrency: Keyword.get(scan_opts, :enum_detection_max_concurrency),
+        schemas: Keyword.get(scan_opts, :schemas),
+        exclude_schemas: Keyword.get(scan_opts, :exclude_schemas)
       }
 
       Reactor.run(EctoDBScanner.Scanner, %{
-        repo: EctoDBScanner.Repo,
+        repo: repo_ref,
         options: reactor_options
       })
     after

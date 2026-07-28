@@ -3,15 +3,16 @@ defmodule EctoDBScannerTest do
 
   alias EctoDBScanner.Result
 
+  @conn_opts [
+    hostname: "localhost",
+    username: "postgres",
+    password: "postgres",
+    database: "ecto_db_scanner_test",
+    port: 5432
+  ]
+
   setup_all do
-    {:ok, db} =
-      EctoDBScanner.scan(
-        hostname: "localhost",
-        username: "postgres",
-        password: "postgres",
-        database: "ecto_db_scanner_test",
-        port: 5432
-      )
+    {:ok, db} = EctoDBScanner.scan(@conn_opts)
 
     %{db: db}
   end
@@ -101,6 +102,61 @@ defmodule EctoDBScannerTest do
 
       assert length(public.sequences) > 0
       assert %Result.Sequence{} = hd(public.sequences)
+    end
+
+    test "includes table and column comments", %{db: db} do
+      public = Enum.find(db.schemas, &(&1.name == "public"))
+      users = Enum.find(public.tables, &(&1.name == "users"))
+      email_col = Enum.find(users.columns, &(&1.name == "email"))
+
+      assert users.comment == "Application user accounts"
+      assert email_col.comment == "Unique login email address"
+    end
+  end
+
+  describe "concurrent scans" do
+    test "two scans can run at the same time without colliding" do
+      # Regression: scans used to start a repo registered under the
+      # EctoDBScanner.Repo name, so a second concurrent scan crashed with
+      # :already_started. Each scan now runs an anonymous repo instance.
+      [result_a, result_b] =
+        1..2
+        |> Enum.map(fn _ -> Task.async(fn -> EctoDBScanner.scan(@conn_opts) end) end)
+        |> Task.await_many(120_000)
+
+      assert {:ok, %Result.Database{}} = result_a
+      assert {:ok, %Result.Database{}} = result_b
+    end
+  end
+
+  describe "schema scoping" do
+    test ":schemas restricts the scan to only the given schemas" do
+      {:ok, db} = EctoDBScanner.scan(@conn_opts ++ [schemas: ["custom_schema"]])
+
+      assert Enum.map(db.schemas, & &1.name) == ["custom_schema"]
+
+      [custom] = db.schemas
+      assert Enum.map(custom.tables, & &1.name) == ["items"]
+
+      # Sequences are scoped too
+      assert Enum.map(custom.sequences, & &1.name) == ["items_id_seq"]
+
+      # The scoped scan still resolves details inside the schema
+      [items] = custom.tables
+      id_col = Enum.find(items.columns, &(&1.name == "id"))
+      category_col = Enum.find(items.columns, &(&1.name == "category"))
+
+      assert id_col.primary_key == true
+      assert Enum.sort(category_col.enum_values) == ["books", "clothing", "electronics"]
+      assert items.row_count > 0
+    end
+
+    test ":exclude_schemas skips the given schemas" do
+      {:ok, db} = EctoDBScanner.scan(@conn_opts ++ [exclude_schemas: ["custom_schema"]])
+
+      schema_names = Enum.map(db.schemas, & &1.name)
+      assert "public" in schema_names
+      refute "custom_schema" in schema_names
     end
   end
 end
