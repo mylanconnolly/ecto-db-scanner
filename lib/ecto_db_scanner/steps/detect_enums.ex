@@ -21,12 +21,7 @@ defmodule EctoDBScanner.Steps.DetectEnums do
       end
 
     if Map.get(scan_options, :detect_enums, true) do
-      pool_size = repo.config()[:pool_size] || 5
-
-      detector_opts =
-        [pool_size: pool_size]
-        |> maybe_put(:max_concurrency, Map.get(scan_options, :enum_detection_max_concurrency))
-        |> maybe_put(:timeout, Map.get(scan_options, :enum_detection_timeout))
+      detector_opts = detector_opts(scan_options, repo)
 
       tables_with_counts =
         Enum.map(tables, fn {schema, table, count, _type, _comment} -> {schema, table, count} end)
@@ -38,6 +33,18 @@ defmodule EctoDBScanner.Steps.DetectEnums do
     else
       {:ok, pg_enum_info}
     end
+  end
+
+  @doc false
+  # scan/1 passes the pool size of the instance it started; repo.config() only
+  # reflects app config, which is right for a conventionally named repo passed
+  # straight to the Reactor but not for a scan's own anonymous pool.
+  def detector_opts(scan_options, repo) do
+    pool_size = Map.get(scan_options, :pool_size) || repo.config()[:pool_size] || 5
+
+    [pool_size: pool_size]
+    |> maybe_put(:max_concurrency, Map.get(scan_options, :enum_detection_max_concurrency))
+    |> maybe_put(:timeout, Map.get(scan_options, :enum_detection_timeout))
   end
 
   defp maybe_put(opts, _key, nil), do: opts

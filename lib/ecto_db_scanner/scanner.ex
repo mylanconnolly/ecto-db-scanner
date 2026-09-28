@@ -45,6 +45,11 @@ defmodule EctoDBScanner.Scanner do
     argument :columns, result(:columns)
     argument :pg_enums, result(:pg_enums)
     argument :options, input(:options)
+
+    # Sampling fans out to `pool_size - 1` tasks by default. Running it after
+    # the other catalog queries means it never competes with them for the
+    # scan's pool, so that default doesn't oversubscribe it.
+    wait_for [:constraints, :sizes, :indexes, :sequences]
   end
 
   step :assemble, EctoDBScanner.Steps.AssembleResults do
