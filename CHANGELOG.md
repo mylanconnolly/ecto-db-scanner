@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.5.1
+
+### Bug fixes
+
+- **A failed sampling query no longer aborts the whole scan**: heuristic enum detection now drops a column whose sampling query errors, just as it already dropped one that timed out, and logs a warning naming the column. Before, the full-scan path raised from `repo.one/1` / `repo.all/1` and the `TABLESAMPLE` path hit a `MatchError` on `{:error, _}`. Either one crashed the sampling task, which failed the `DetectEnums` step and the whole `Reactor.run`. In production this came from a pool checkout dropped with `:queue_timeout` on a large source database.
+- **Enum sampling no longer competes with the other catalog queries for the pool**: `:detect_enums` now waits for `:constraints`, `:sizes`, `:indexes` and `:sequences` to finish. Its default `pool_size - 1` concurrency previously shared the pool with those four steps, so the default 5-connection pool could be asked for up to 8 connections at once.
+- **Default sampling concurrency follows the scan's own pool size**: `DetectEnums` read `repo.config()[:pool_size]`, which is app config rather than the anonymous instance `scan/1` starts. It fell back to 5 no matter what `:pool_size` the caller passed. `scan/1` now passes its pool size to the Reactor, and callers that run `EctoDBScanner.Scanner` directly with a named repo still get that repo's configured pool size.
+
 ## v0.5.0
 
 ### New features
