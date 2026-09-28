@@ -49,12 +49,14 @@ defmodule EctoDBScanner do
 
     * `:enum_detection_timeout` (integer, default `60_000`) — Per-column
       sampling timeout in milliseconds for heuristic enum detection. A column
-      that exceeds it is silently dropped from the results, the rest of the
-      scan continues.
+      that exceeds it, or whose sampling query fails (e.g. a dropped pool
+      checkout or a table removed mid-scan), is dropped from the results with
+      a logged warning; the rest of the scan continues.
 
     * `:enum_detection_max_concurrency` (integer) — Number of columns to
-      sample concurrently. Defaults to `pool_size - 1` (minimum 1) so the
-      connection pool is not saturated by the scan itself.
+      sample concurrently. Defaults to `pool_size - 1` (minimum 1), derived
+      from the `:pool_size` given to this scan (default 5). Sampling runs after
+      the other catalog queries, so it has the pool to itself.
 
     * `:schemas` (list of strings) — When present, **only** these schemas are
       scanned. Filtering happens at the query level, so tables, columns,
@@ -94,6 +96,7 @@ defmodule EctoDBScanner do
         detect_enums: Keyword.get(scan_opts, :detect_enums, true),
         enum_detection_timeout: Keyword.get(scan_opts, :enum_detection_timeout),
         enum_detection_max_concurrency: Keyword.get(scan_opts, :enum_detection_max_concurrency),
+        pool_size: repo_config[:pool_size],
         schemas: Keyword.get(scan_opts, :schemas),
         exclude_schemas: Keyword.get(scan_opts, :exclude_schemas)
       }

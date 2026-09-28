@@ -5,6 +5,8 @@ defmodule EctoDBScanner.EnumDetector do
 
   import Ecto.Query
 
+  require Logger
+
   alias EctoDBScanner.RepoRef
 
   @min_rows 100
@@ -51,6 +53,10 @@ defmodule EctoDBScanner.EnumDetector do
     * `:timeout` — per-column sampling timeout in milliseconds. Defaults to
       `60_000`. A column whose sampling exceeds this is dropped from the
       results; it does not abort the rest of the run.
+
+  A column whose sampling query fails (a dropped pool checkout, a table
+  removed mid-scan, a permission error) is likewise dropped with a logged
+  warning rather than failing the run.
   """
   def detect_heuristic_enums(repo_ref, tables_with_counts, columns, opts \\ []) do
     string_columns =
@@ -95,27 +101,25 @@ defmodule EctoDBScanner.EnumDetector do
     qualified = qualify(schema, table)
     quoted_col = quote_ident(column)
 
-    {:ok, %{rows: [[distinct_count, sample_rows]]}} =
-      repo.query(
-        "SELECT COUNT(DISTINCT #{quoted_col}), COUNT(*) " <>
-          "FROM #{qualified} TABLESAMPLE SYSTEM ($1) WHERE #{quoted_col} IS NOT NULL",
-        [percentage]
-      )
+    key = {schema, table, column}
 
-    sample_ratio = if sample_rows > 0, do: distinct_count / sample_rows, else: 1.0
-
-    if distinct_count <= @max_distinct and sample_ratio <= @max_ratio do
-      {:ok, %{rows: rows}} =
-        repo.query(
-          "SELECT DISTINCT #{quoted_col} FROM #{qualified} TABLESAMPLE SYSTEM ($1) " <>
-            "WHERE #{quoted_col} IS NOT NULL ORDER BY #{quoted_col} LIMIT 51",
-          [percentage]
-        )
-
-      values = Enum.map(rows, fn [v] -> v end)
-      {{schema, table, column}, values}
+    with {:ok, %{rows: [[distinct_count, sample_rows]]}} <-
+           repo.query(
+             "SELECT COUNT(DISTINCT #{quoted_col}), COUNT(*) " <>
+               "FROM #{qualified} TABLESAMPLE SYSTEM ($1) WHERE #{quoted_col} IS NOT NULL",
+             [percentage]
+           ),
+         true <- enum_like?(distinct_count, sample_rows),
+         {:ok, %{rows: rows}} <-
+           repo.query(
+             "SELECT DISTINCT #{quoted_col} FROM #{qualified} TABLESAMPLE SYSTEM ($1) " <>
+               "WHERE #{quoted_col} IS NOT NULL ORDER BY #{quoted_col} LIMIT 51",
+             [percentage]
+           ) do
+      {key, Enum.map(rows, fn [v] -> v end)}
     else
-      {{schema, table, column}, nil}
+      false -> {key, nil}
+      {:error, error} -> skip_column(key, error)
     end
   end
 
@@ -144,6 +148,23 @@ defmodule EctoDBScanner.EnumDetector do
     else
       {{schema, table, column}, nil}
     end
+  rescue
+    error in [DBConnection.ConnectionError, Postgrex.Error] ->
+      skip_column({schema, table, column}, error)
+  end
+
+  defp enum_like?(_distinct_count, 0), do: false
+
+  defp enum_like?(distinct_count, sample_rows),
+    do: distinct_count <= @max_distinct and distinct_count / sample_rows <= @max_ratio
+
+  defp skip_column({schema, table, column} = key, error) do
+    Logger.warning(
+      "EctoDBScanner: skipping enum detection for #{schema}.#{table}.#{column}: " <>
+        Exception.message(error)
+    )
+
+    {key, nil}
   end
 
   defp sample_percentage(total_rows) do
