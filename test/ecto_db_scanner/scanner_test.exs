@@ -495,6 +495,40 @@ defmodule EctoDBScanner.ScannerTest do
       assert gin_idx.name == "with_arrays_tags_gin"
     end
 
+    test "reports definition and size", %{db: db} do
+      users = db |> find_schema("public") |> find_table("users")
+      email_idx = Enum.find(users.indexes, &(&1.columns == ["email"]))
+
+      assert email_idx.definition =~ "CREATE UNIQUE INDEX"
+      assert email_idx.definition =~ "(email)"
+      assert is_integer(email_idx.size_bytes) and email_idx.size_bytes > 0
+      assert email_idx.predicate == nil
+      assert email_idx.include == []
+    end
+
+    test "a partial index reports its predicate, not as columns", %{db: db} do
+      posts = db |> find_schema("public") |> find_table("posts")
+      idx = Enum.find(posts.indexes, &(&1.name == "posts_unpublished_inserted_at"))
+
+      assert idx.columns == ["inserted_at"]
+      assert idx.predicate == "published = false"
+    end
+
+    test "an expression index reports the expression as its key", %{db: db} do
+      users = db |> find_schema("public") |> find_table("users")
+      idx = Enum.find(users.indexes, &(&1.name == "users_lower_email"))
+
+      assert idx.columns == ["lower(email)"]
+    end
+
+    test "INCLUDE columns are reported apart from the keys", %{db: db} do
+      comments = db |> find_schema("public") |> find_table("comments")
+      idx = Enum.find(comments.indexes, &(&1.name == "comments_post_id_covering"))
+
+      assert idx.columns == ["post_id"]
+      assert idx.include == ["body"]
+    end
+
     test "excludes primary key indexes", %{db: db} do
       public = find_schema(db, "public")
       users = find_table(public, "users")

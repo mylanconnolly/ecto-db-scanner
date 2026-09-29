@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.6.0
+
+### Added
+
+- **Richer index details** on `Result.Index`: `definition` (the full
+  `CREATE INDEX` statement), `predicate` (a partial index's `WHERE` clause),
+  `include` (non-key `INCLUDE` columns) and `size_bytes`.
+
+### Changed
+
+- **Index key columns come from the catalog** (`pg_get_indexdef` per key)
+  instead of a regex over the index definition. Expression keys now appear as
+  the expression (`lower(email)`), and partial indexes no longer report their
+  `WHERE` clause as columns; covering indexes list `INCLUDE` columns under
+  `include` rather than `columns`.
+
 ## v0.5.1
 
 ### Bug fixes
