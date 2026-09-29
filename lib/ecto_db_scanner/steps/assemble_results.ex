@@ -77,12 +77,7 @@ defmodule EctoDBScanner.Steps.AssembleResults do
               indexes
               |> Map.get(table_key, [])
               |> Enum.map(fn idx ->
-                %Result.Index{
-                  name: idx.name,
-                  type: idx.type,
-                  unique: idx.unique,
-                  columns: idx.columns
-                }
+                struct(Result.Index, idx)
               end)
 
             result_checks =

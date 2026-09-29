@@ -33,39 +33,37 @@ defmodule EctoDBScanner.Steps.QueryIndexes do
       on: ic.relam == am.oid,
       prefix: "pg_catalog",
       where: not i.indisprimary,
-      select: {
-        n.nspname,
-        tc.relname,
-        ic.relname,
-        am.amname,
-        i.indisunique,
-        fragment("pg_get_indexdef(?)", i.indexrelid)
+      select: %{
+        schema: n.nspname,
+        table: tc.relname,
+        name: ic.relname,
+        type: am.amname,
+        unique: i.indisunique,
+        # Key columns (and expressions) straight from the catalog, in order;
+        # INCLUDE columns follow the keys in indkey.
+        columns:
+          fragment(
+            "ARRAY(SELECT pg_get_indexdef(?, k, true) FROM generate_series(1, ?) AS k)",
+            i.indexrelid,
+            i.indnkeyatts
+          ),
+        include:
+          fragment(
+            "ARRAY(SELECT pg_get_indexdef(?, k, true) FROM generate_series(? + 1, ?) AS k)",
+            i.indexrelid,
+            i.indnkeyatts,
+            i.indnatts
+          ),
+        predicate: fragment("pg_get_expr(?, ?, true)", i.indpred, i.indrelid),
+        definition: fragment("pg_get_indexdef(?)", i.indexrelid),
+        size_bytes: fragment("pg_relation_size(?)", i.indexrelid)
       }
     )
     |> SchemaScope.apply_scope(options, :nspname)
     |> repo.all()
     |> Enum.group_by(
-      fn {schema, table, _, _, _, _} -> {schema, table} end,
-      fn {_, _, index_name, am_name, unique, indexdef} ->
-        %{
-          name: index_name,
-          type: am_name,
-          unique: unique,
-          columns: parse_index_columns(indexdef)
-        }
-      end
+      fn index -> {index.schema, index.table} end,
+      fn index -> Map.drop(index, [:schema, :table]) end
     )
-  end
-
-  defp parse_index_columns(indexdef) do
-    case Regex.run(~r/\((.+)\)$/, indexdef) do
-      [_, columns_str] ->
-        columns_str
-        |> String.split(",")
-        |> Enum.map(&String.trim/1)
-
-      _ ->
-        []
-    end
   end
 end
